@@ -3,7 +3,12 @@ package dev.questvoiceover;
 import com.google.inject.Provides;
 import javax.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
+import net.runelite.api.ChatMessageType;
+import net.runelite.api.Client;
 import net.runelite.api.events.ChatMessage;
+import net.runelite.api.events.GameTick;
+import net.runelite.api.gameval.InterfaceID;
+import net.runelite.api.widgets.Widget;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.plugins.Plugin;
@@ -16,8 +21,17 @@ import net.runelite.client.util.Text;
 )
 public class QuestVoiceOverPlugin extends Plugin
 {
+	private static final String CONFIG_GROUP = "questvoiceover";
+	private static final String PLAYER_SPEAKER_FALLBACK = "Player";
+
+	@Inject
+	private Client client;
+
 	@Inject
 	private ConfigManager configManager;
+
+	private String lastSpeaker = "";
+	private String lastDialogue = "";
 
 	@Override
 	protected void startUp() throws Exception
@@ -32,11 +46,43 @@ public class QuestVoiceOverPlugin extends Plugin
 	}
 
 	@Subscribe
+	public void onGameTick(GameTick gameTick)
+	{
+		Widget npcDialogueTextWidget = client.getWidget(InterfaceID.ChatLeft.TEXT);
+		if (npcDialogueTextWidget != null)
+		{
+			String speaker = cleanWidgetText(InterfaceID.ChatLeft.NAME);
+			String dialogue = clean(npcDialogueTextWidget.getText());
+			observeDialogue(speaker, dialogue);
+			return;
+		}
+
+		Widget playerDialogueTextWidget = client.getWidget(InterfaceID.ChatRight.TEXT);
+		if (playerDialogueTextWidget != null)
+		{
+			String speaker = getPlayerSpeakerName();
+			String dialogue = clean(playerDialogueTextWidget.getText());
+			observeDialogue(speaker, dialogue);
+		}
+	}
+
+	@Subscribe
 	public void onChatMessage(ChatMessage chatMessage)
 	{
-		String observedMessage = formatObservedMessage(chatMessage);
-		configManager.setConfiguration("questvoiceover", "lastObservedChatMessage", observedMessage);
-		log.debug("Observed chat message: {}", observedMessage);
+		if (chatMessage.getType() != ChatMessageType.DIALOG && chatMessage.getType() != ChatMessageType.MESBOX)
+		{
+			return;
+		}
+
+		String speaker = clean(chatMessage.getName());
+		String dialogue = clean(chatMessage.getMessage());
+
+		if (speaker.isEmpty() && dialogue.isEmpty())
+		{
+			return;
+		}
+
+		observeDialogue(speaker, dialogue);
 	}
 
 	@Provides
@@ -45,17 +91,59 @@ public class QuestVoiceOverPlugin extends Plugin
 		return configManager.getConfig(QuestVoiceOverConfig.class);
 	}
 
-	private String formatObservedMessage(ChatMessage chatMessage)
+	private void observeDialogue(String speaker, String dialogue)
 	{
-		String name = clean(chatMessage.getName());
-		String message = clean(chatMessage.getMessage());
-
-		if (!name.isEmpty())
+		if (dialogue.isEmpty())
 		{
-			return chatMessage.getType() + " | " + name + ": " + message;
+			return;
 		}
 
-		return chatMessage.getType() + " | " + message;
+		speaker = speaker == null ? "" : speaker;
+		if (speaker.equals(lastSpeaker) && dialogue.equals(lastDialogue))
+		{
+			return;
+		}
+
+		lastSpeaker = speaker;
+		lastDialogue = dialogue;
+
+		configManager.setConfiguration(CONFIG_GROUP, "lastObservedSpeaker", speaker);
+		configManager.setConfiguration(CONFIG_GROUP, "lastObservedDialogue", dialogue);
+		configManager.setConfiguration(CONFIG_GROUP, "lastObservedChatMessage", formatCombinedDialogue(speaker, dialogue));
+
+		log.debug("Observed dialogue speaker='{}' dialogue='{}'", speaker, dialogue);
+	}
+
+	private String formatCombinedDialogue(String speaker, String dialogue)
+	{
+		if (!speaker.isEmpty())
+		{
+			return speaker + ": " + dialogue;
+		}
+
+		return dialogue;
+	}
+
+	private String cleanWidgetText(int packedWidgetId)
+	{
+		Widget widget = client.getWidget(packedWidgetId);
+		if (widget == null)
+		{
+			return "";
+		}
+
+		return clean(widget.getText());
+	}
+
+	private String getPlayerSpeakerName()
+	{
+		if (client.getLocalPlayer() == null)
+		{
+			return PLAYER_SPEAKER_FALLBACK;
+		}
+
+		String playerName = clean(client.getLocalPlayer().getName());
+		return playerName.isEmpty() ? PLAYER_SPEAKER_FALLBACK : playerName;
 	}
 
 	private String clean(String value)
@@ -65,6 +153,6 @@ public class QuestVoiceOverPlugin extends Plugin
 			return "";
 		}
 
-		return Text.removeTags(value).trim();
+		return Text.removeTags(value).replace('\u00A0', ' ').trim();
 	}
 }
