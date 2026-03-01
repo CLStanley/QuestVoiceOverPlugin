@@ -3,14 +3,12 @@ package dev.questvoiceover;
 import com.google.inject.Provides;
 import javax.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
-import net.runelite.api.ChatMessageType;
-import net.runelite.api.Client;
-import net.runelite.api.GameState;
-import net.runelite.api.events.GameStateChanged;
+import net.runelite.api.events.ChatMessage;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
+import net.runelite.client.util.Text;
 
 @Slf4j
 @PluginDescriptor(
@@ -19,10 +17,7 @@ import net.runelite.client.plugins.PluginDescriptor;
 public class QuestVoiceOverPlugin extends Plugin
 {
 	@Inject
-	private Client client;
-
-	@Inject
-	private QuestVoiceOverConfig config;
+	private ConfigManager configManager;
 
 	@Override
 	protected void startUp() throws Exception
@@ -37,17 +32,39 @@ public class QuestVoiceOverPlugin extends Plugin
 	}
 
 	@Subscribe
-	public void onGameStateChanged(GameStateChanged gameStateChanged)
+	public void onChatMessage(ChatMessage chatMessage)
 	{
-		if (gameStateChanged.getGameState() == GameState.LOGGED_IN)
-		{
-			client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", "Quest Voice Over says " + config.greeting(), null);
-		}
+		String observedMessage = formatObservedMessage(chatMessage);
+		configManager.setConfiguration("questvoiceover", "lastObservedChatMessage", observedMessage);
+		log.debug("Observed chat message: {}", observedMessage);
 	}
 
 	@Provides
 	QuestVoiceOverConfig provideConfig(ConfigManager configManager)
 	{
 		return configManager.getConfig(QuestVoiceOverConfig.class);
+	}
+
+	private String formatObservedMessage(ChatMessage chatMessage)
+	{
+		String name = clean(chatMessage.getName());
+		String message = clean(chatMessage.getMessage());
+
+		if (!name.isEmpty())
+		{
+			return chatMessage.getType() + " | " + name + ": " + message;
+		}
+
+		return chatMessage.getType() + " | " + message;
+	}
+
+	private String clean(String value)
+	{
+		if (value == null)
+		{
+			return "";
+		}
+
+		return Text.removeTags(value).trim();
 	}
 }

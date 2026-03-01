@@ -8,12 +8,12 @@ import net.runelite.client.config.ConfigItem;
 public interface QuestVoiceOverConfig extends Config
 {
 	@ConfigItem(
-		keyName = "greeting",
-		name = "Welcome Greeting",
-		description = "The message to show to the user when they login"
+		keyName = "lastObservedChatMessage",
+		name = "Last Observed Chat Message",
+		description = "The latest chat message detected by the plugin"
 	)
-	default String greeting()
+	default String lastObservedChatMessage()
 	{
-		return "Hello";
+		return "No chat message observed yet.";
 	}
 }
