@@ -30,8 +30,10 @@ public class QuestVoiceOverPlugin extends Plugin
 	@Inject
 	private ConfigManager configManager;
 
-	private String lastSpeaker = "";
-	private String lastDialogue = "";
+	@Inject
+	private QuestDialoguePlaybackService playbackService;
+
+	private final QuestDialogueDeduplicator deduplicator = new QuestDialogueDeduplicator();
 
 	@Override
 	protected void startUp() throws Exception
@@ -91,6 +93,12 @@ public class QuestVoiceOverPlugin extends Plugin
 		return configManager.getConfig(QuestVoiceOverConfig.class);
 	}
 
+	@Provides
+	QuestDialoguePlaybackService providePlaybackService(DebugQuestDialoguePlaybackService playbackService)
+	{
+		return playbackService;
+	}
+
 	private void observeDialogue(String speaker, String dialogue)
 	{
 		if (dialogue.isEmpty())
@@ -99,17 +107,15 @@ public class QuestVoiceOverPlugin extends Plugin
 		}
 
 		speaker = speaker == null ? "" : speaker;
-		if (speaker.equals(lastSpeaker) && dialogue.equals(lastDialogue))
+		if (!deduplicator.shouldProcess(speaker, dialogue))
 		{
 			return;
 		}
 
-		lastSpeaker = speaker;
-		lastDialogue = dialogue;
-
-		configManager.setConfiguration(CONFIG_GROUP, "lastObservedSpeaker", speaker);
-		configManager.setConfiguration(CONFIG_GROUP, "lastObservedDialogue", dialogue);
-		configManager.setConfiguration(CONFIG_GROUP, "lastObservedChatMessage", formatCombinedDialogue(speaker, dialogue));
+		String combinedDialogue = formatCombinedDialogue(speaker, dialogue);
+		QuestDialogue observedDialogue = new QuestDialogue(speaker, dialogue, combinedDialogue);
+		recordObservedDialogue(observedDialogue);
+		playbackService.play(observedDialogue);
 
 		log.debug("Observed dialogue speaker='{}' dialogue='{}'", speaker, dialogue);
 	}
@@ -154,5 +160,12 @@ public class QuestVoiceOverPlugin extends Plugin
 		}
 
 		return Text.removeTags(value).replace('\u00A0', ' ').trim();
+	}
+
+	private void recordObservedDialogue(QuestDialogue dialogue)
+	{
+		configManager.setConfiguration(CONFIG_GROUP, "lastObservedSpeaker", dialogue.getSpeaker());
+		configManager.setConfiguration(CONFIG_GROUP, "lastObservedDialogue", dialogue.getText());
+		configManager.setConfiguration(CONFIG_GROUP, "lastObservedChatMessage", dialogue.getCombinedText());
 	}
 }
